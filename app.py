@@ -17,7 +17,7 @@ except FileNotFoundError:
 
 # 3. 모델 설정
 genai.configure(api_key=api_key)
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("gemini-pro-latest")
 
 # 4. 세션 상태 초기화 (대화 기록)
 if "messages" not in st.session_state:
@@ -53,3 +53,4 @@ if prompt := st.chat_input("메시지를 입력하세요..."):
 
     except Exception as e:
         st.error(f"에러 발생: {e}")
+
