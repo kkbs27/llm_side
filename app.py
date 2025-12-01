@@ -2,45 +2,64 @@ import streamlit as st
 import google.generativeai as genai
 import pandas as pd
 import time
+import os
 
-# 1. 페이지 및 API 설정
-st.set_page_config(page_title="AI 스마트 군집화", page_icon="🧠")
+# 1. 보기 싫은 경고 메시지 차단
+os.environ['GRPC_VERBOSITY'] = 'ERROR'
+os.environ['GLOG_minloglevel'] = '2'
 
+# 2. 페이지 설정
+st.set_page_config(page_title="AI 분석기 Final", page_icon="📊", layout="wide")
+
+# 3. API 키 설정 (하이브리드 방식)
+api_key = None
 try:
-    api_key = st.secrets["GOOGLE_API_KEY"]
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-pro-latest")
+    if "GOOGLE_API_KEY" in st.secrets:
+        api_key = st.secrets["GOOGLE_API_KEY"]
 except:
-    st.error("API 키 설정이 필요합니다.")
+    pass
+
+if not api_key:
+    if "GOOGLE_API_KEY" in os.environ:
+        api_key = os.environ["GOOGLE_API_KEY"]
+    else:
+        with st.sidebar:
+            st.warning("⚠️ API 키 설정 필요")
+            api_key = st.text_input("Google API Key 입력", type="password")
+
+if not api_key:
+    st.info("👈 왼쪽 사이드바에 API 키를 입력해주세요.")
     st.stop()
 
-# --- [핵심] 똑똑한 재시도 함수 정의 ---
+genai.configure(api_key=api_key)
+
+# [수정됨] 사용자 목록에 있는 'gemini-2.0-flash' 사용
+model = genai.GenerativeModel("gemini-2.0-flash")
+
+# --- 재시도 함수 ---
 def generate_with_retry(prompt, max_retries=3):
-    """
-    API 호출 실패 시 잠시 대기했다가 재시도하는 함수
-    (Exponential Backoff 적용: 2초 -> 4초 -> 8초 대기)
-    """
     for attempt in range(max_retries):
         try:
             response = model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
-            # 에러 발생 시 처리
-            wait_time = 2 ** (attempt + 1) # 2의 n승으로 대기 시간 증가
+            error_msg = str(e)
+            print(f"Error: {error_msg}") # 터미널에 에러 로그 출력
             
-            # 스트림릿 화면에 작은 경고 표시 (Toast)
-            st.toast(f"API 호출량이 많아 {wait_time}초 대기 후 재시도합니다... ({attempt+1}/{max_retries})")
-            time.sleep(wait_time)
-            
-    return "API_ERROR" # 3번 다 실패하면 에러 반환
+            # 429(속도제한)나 Quota 에러 시
+            if "429" in error_msg or "Quota" in error_msg:
+                with st.sidebar:
+                    st.toast(f"🚦 속도 조절 중... 잠시 대기 ({attempt+1}/{max_retries})")
+                time.sleep(10) # 10초 대기
+            else:
+                time.sleep(1) # 일반 에러는 1초 대기
+                
+    return "FAIL"
 
-# ------------------------------------
+# --- 메인 UI ---
+st.title("📊 AI 데이터 분석기 (Final Ver.)")
 
-st.title("🧠 AI 자율 군집화 봇 (Pro)")
-st.caption("데이터 분석 및 Rate Limit 자동 대응 기능 탑재")
-
-# 2. 파일 업로드
-uploaded_file = st.file_uploader("댓글 CSV 파일 업로드 ('comment' 열 필수)", type=["csv"])
+uploaded_file = st.file_uploader("CSV 파일 업로드", type=["csv"])
 
 if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
@@ -48,73 +67,39 @@ if uploaded_file is not None:
     st.dataframe(df.head())
 
     if 'comment' not in df.columns:
-        st.error("CSV에 'comment' 열이 없습니다!")
+        st.error("❌ 'comment' 열이 없습니다.")
     else:
-        # 3. 1단계: 주제 발견 (Topic Discovery)
-        if st.button("AI가 주제 찾기 시작 🕵️"):
-            with st.spinner("데이터를 분석하여 분류 기준을 수립 중..."):
-                sample_comments = df['comment'].head(30).tolist()
-                
-                discovery_prompt = f"""
-                너는 데이터 분석가야. 아래 나열된 댓글들을 읽고, 전체를 관통하는 핵심 주제를 딱 4가지로 요약해줘.
-                [댓글 샘플] {sample_comments}
-                [조건]
-                1. 4개의 주제는 서로 겹치지 않아야 함.
-                2. 출력 형식은 오직 쉼표로 구분된 단어 4개여야 함. (예: 가격, 품질, 배송, 서비스)
-                3. 설명이나 다른 말은 절대 하지 마.
-                """
-                
-                # 재시도 함수 사용
-                categories = generate_with_retry(discovery_prompt)
-                
-                if categories == "API_ERROR":
-                    st.error("주제 발견에 실패했습니다. 잠시 후 다시 시도해주세요.")
-                else:
-                    st.session_state.categories = categories
-                    st.success(f"발견된 분류 기준: {categories}")
-
-        # 4. 2단계: 전체 분류 (Classification)
-        if "categories" in st.session_state:
-            st.divider()
-            st.write(f"### 2. 설정된 기준: [{st.session_state.categories}]")
+        st.markdown("---")
+        st.subheader("2. 분석 실행")
+        
+        if st.button("분석 시작 (긍정/부정/중립/질문)"):
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            results = []
             
-            if st.button("전체 데이터 분류 시작 🚀"):
-                # 진행률바 및 결과 컨테이너
-                progress_bar = st.progress(0)
-                status_text = st.empty() # 상태 메시지 표시용
-                
-                results = []
-                total_rows = len(df)
-                categories_str = st.session_state.categories
+            # 전체 데이터 분석
+            target_df = df 
+            total_rows = len(target_df)
 
-                for index, row in df.iterrows():
-                    comment = row['comment']
-                    
-                    classify_prompt = f"""
-                    다음 댓글을 아래 4가지 기준 중 하나로 분류해줘.
-                    [분류 기준] {categories_str}
-                    [댓글] {comment}
-                    [조건] 다른 말 하지 말고 딱 분류 기준 단어 하나만 출력해.
-                    """
-                    
-                    # 여기서 재시도 함수 호출!
-                    category = generate_with_retry(classify_prompt)
-                    
-                    results.append(category)
-                    
-                    # 진행률 업데이트
-                    current_progress = (index + 1) / total_rows
-                    progress_bar.progress(current_progress)
-                    status_text.text(f"진행 중... ({index + 1}/{total_rows})")
+            for i, row in target_df.iterrows():
+                comment = row['comment']
+                prompt = f"다음 댓글을 [긍정, 부정, 중립, 질문] 중 하나로만 분류해. 댓글: {comment}"
                 
-                # 결과 저장 및 표시
-                df['AI_분류'] = results
-                st.success("모든 분석이 완료되었습니다!")
-                status_text.empty() # 상태 메시지 지우기
+                res = generate_with_retry(prompt)
+                results.append(res)
                 
-                st.write("### 최종 결과")
-                st.dataframe(df)
+                # [핵심] 2초씩 무조건 쉬기 (과속 단속 회피)
+                time.sleep(2) 
                 
-                csv = df.to_csv(index=False).encode('utf-8-sig')
-                st.download_button("결과 CSV 다운로드", csv, "ai_analysis_result.csv", "text/csv")
-
+                # 진행률 업데이트
+                progress_bar.progress((i + 1) / total_rows)
+                status_text.text(f"분석 중... ({i + 1}/{total_rows})")
+            
+            # 결과 저장
+            df['분석_결과'] = results
+            
+            st.success("완료!")
+            st.dataframe(df)
+            
+            csv = df.to_csv(index=False).encode('utf-8-sig')
+            st.download_button("결과 다운로드", csv, "result.csv", "text/csv")
