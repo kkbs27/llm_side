@@ -9,7 +9,7 @@ st.set_page_config(page_title="AI 스마트 군집화", page_icon="🧠")
 try:
     api_key = st.secrets["GOOGLE_API_KEY"]
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-pro-latest")
 except:
     st.error("API 키 설정이 필요합니다.")
     st.stop()
@@ -117,3 +117,4 @@ if uploaded_file is not None:
                 
                 csv = df.to_csv(index=False).encode('utf-8-sig')
                 st.download_button("결과 CSV 다운로드", csv, "ai_analysis_result.csv", "text/csv")
+
