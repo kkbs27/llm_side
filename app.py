@@ -114,7 +114,7 @@ def generate_with_retry(prompt, max_retries=3):
 
 # --- 메인 UI 시작 ---
 
-st.title("📊 AI 데이터 분석기 (Pro Ver.)")
+st.title("AI 댓글 분류기")
 
 st.caption("AI가 데이터를 먼저 읽고 주제를 찾거나, 정해진 기준으로 분류합니다.")
 
@@ -268,7 +268,7 @@ if uploaded_file is not None:
 
             st.info("💡 가장 보편적인 [긍정, 부정, 중립, 질문] 4가지 기준으로 분류합니다.")
 
-            if st.button("긍부정 분석 시작작"):
+            if st.button("긍부정 분석 시작"):
 
                 st.session_state.final_categories = "긍정, 부정, 중립, 질문"
 
@@ -375,5 +375,6 @@ if uploaded_file is not None:
                     mime="text/csv"
 
                 )
+
 
 
