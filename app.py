@@ -220,9 +220,9 @@ if uploaded_file is not None:
 
         if "스스로" in analysis_mode:
 
-            st.info("🕵️ AI가 데이터 일부를 먼저 읽고, 가장 중요한 주제 4가지를 뽑아냅니다.")
+            st.info("🕵️ AI가 데이터 일부를 먼저 읽고, 가장 중요한 주제 3가지를 뽑아냅니다.")
 
-            if st.button("Step 1. 주제 탐색 시작"):
+            if st.button("분석 시작"):
 
                 with st.spinner("데이터를 분석하여 분류 기준을 수립 중입니다..."):
 
@@ -234,15 +234,15 @@ if uploaded_file is not None:
 
                     discovery_prompt = f"""
 
-                    너는 데이터 분석가야. 아래 댓글들을 읽고 전체를 관통하는 핵심 주제를 딱 4가지로 요약해.
+                    너는 데이터 분석가야. 아래 댓글들을 읽고 전체를 관통하는 핵심 주제를 딱 3가지로 요약해.
 
                     [댓글 샘플] {sample_comments}
 
                     [조건]
 
-                    1. 주제 4개는 쉼표(,)로만 구분해. (예: 가격, 품질, 배송, 서비스)
-
-                    2. 설명이나 번호 매기기 절대 금지. 오직 단어 4개만 출력해.
+                    1. 주제 3개는 쉼표(,)로만 구분해. (예: 가격, 품질, 배송)
+                    2. 설명이나 번호 매기기 절대 금지. 오직 단어 3개만 출력해.
+                    3. 잘 모르겠다고 포기하지말고 도저히 주제가 안 나오면 '기타'라고 분류해.
 
                     """
 
@@ -268,7 +268,7 @@ if uploaded_file is not None:
 
             st.info("💡 가장 보편적인 [긍정, 부정, 중립, 질문] 4가지 기준으로 분류합니다.")
 
-            if st.button("Step 1. 기준 설정"):
+            if st.button("긍부정 분석 시작작"):
 
                 st.session_state.final_categories = "긍정, 부정, 중립, 질문"
 
@@ -286,7 +286,7 @@ if uploaded_file is not None:
 
             
 
-            if st.button("Step 2. 전체 데이터 분류 시작 🚀"):
+            if st.button("분류 시작"):
 
                 progress_bar = st.progress(0)
 
@@ -375,4 +375,5 @@ if uploaded_file is not None:
                     mime="text/csv"
 
                 )
+
 
