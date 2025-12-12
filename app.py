@@ -1,16 +1,16 @@
 import streamlit as st
 import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold # 안전 설정용
 import pandas as pd
 import time
 import os
-import ast  # [추가됨] 홑따옴표 리스트도 해석하는 강력한 도구
 
 # 1. 경고 메시지 차단
 os.environ['GRPC_VERBOSITY'] = 'ERROR'
 os.environ['GLOG_minloglevel'] = '2'
 
 # 2. 페이지 설정
-st.set_page_config(page_title="AI 분석기 Final (Fix)", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="AI 분석기 Final (Uncensored)", page_icon="⚡", layout="wide")
 
 # 3. API 키 설정
 api_key = None
@@ -32,15 +32,24 @@ if not api_key:
     st.info("👈 왼쪽 사이드바에 API 키를 입력해주세요.")
     st.stop()
 
-# 4. 모델 설정
+# 4. 모델 설정 (안전 필터 해제 설정 추가)
 genai.configure(api_key=api_key)
 model = genai.GenerativeModel("gemini-2.0-flash")
+
+# [핵심] 욕설/비하 발언도 분석할 수 있게 안전장치를 끔 (BLOCK_NONE)
+safety_settings = {
+    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+}
 
 # 5. 재시도 함수
 def generate_with_retry(prompt, max_retries=3):
     for attempt in range(max_retries):
         try:
-            response = model.generate_content(prompt)
+            # 안전 설정 적용하여 호출
+            response = model.generate_content(prompt, safety_settings=safety_settings)
             return response.text.strip()
         except Exception as e:
             error_msg = str(e)
@@ -53,13 +62,12 @@ def generate_with_retry(prompt, max_retries=3):
     return "FAIL"
 
 # --- 메인 UI ---
-st.title("⚡ AI 데이터 분석기 (Parser Fix)")
-st.caption("배치 처리 + 강력한 파싱으로 '판독불가' 오류를 해결했습니다.")
+st.title("⚡ AI 데이터 분석기 (No Filter Ver.)")
+st.caption("안전 필터를 해제하여 욕설/비판 댓글도 정확히 분석합니다.")
 
 uploaded_file = st.file_uploader("CSV 파일 업로드", type=["csv"])
 
 if uploaded_file is not None:
-    # 인코딩 자동 감지
     encodings = ['utf-8', 'cp949', 'euc-kr']
     df = None
     for code in encodings:
@@ -89,25 +97,20 @@ if uploaded_file is not None:
             index=1
         )
 
-        # 주제 탐색
         if "스스로" in analysis_mode:
             if st.button("Step 1. 주제 탐색 시작"):
                 with st.spinner("주제 분석 중..."):
                     sample = df['comment'].head(20).tolist()
                     prompt = f"다음 댓글들을 읽고 핵심 주제 4가지를 쉼표로 구분해줘. 예: 맛,가격,배송,서비스 \n\n[댓글]: {sample}"
                     categories = generate_with_retry(prompt)
-                    
-                    if "FAIL" in categories:
-                        st.error("실패했습니다.")
-                    else:
-                        st.session_state.final_categories = categories
-                        st.success(f"✅ 발견된 주제: {categories}")
+                    st.session_state.final_categories = categories
+                    st.success(f"✅ 발견된 주제: {categories}")
         else:
             if st.button("Step 1. 기준 설정"):
                 st.session_state.final_categories = "긍정, 부정, 중립, 질문"
                 st.success("✅ 기준 설정됨: 긍정, 부정, 중립, 질문")
 
-        # --- [핵심] 고속 배치 처리 로직 ---
+        # --- 고속 배치 처리 로직 ---
         if "final_categories" in st.session_state:
             st.markdown("---")
             st.write(f"### 🎯 기준: **[{st.session_state.final_categories}]**")
@@ -126,55 +129,51 @@ if uploaded_file is not None:
                     batch = target_df.iloc[i : i + BATCH_SIZE]
                     batch_comments = batch['comment'].tolist()
                     
-                    # [수정된 프롬프트] JSON 대신 파이썬 리스트 포맷 요청 (더 안정적)
+                    # [핵심 수정] 리스트 말고 그냥 파이프(|)로 나누라고 지시 (훨씬 잘 알아들음)
                     prompt = f"""
-                    다음 {len(batch_comments)}개의 댓글을 각각 [{cats}] 중 하나로 분류해서 파이썬 리스트 형태로 줘.
+                    다음 {len(batch_comments)}개의 댓글을 [{cats}] 중 하나로 분류해.
                     
                     [댓글 목록]
                     {batch_comments}
                     
                     [조건]
-                    1. 반드시 ['결과1', '결과2'] 형태의 파이썬 리스트만 출력해.
-                    2. 설명이나 코드 블록(```) 없이 리스트만 줘.
-                    3. 개수는 정확히 {len(batch_comments)}개여야 해.
+                    1. 결과는 반드시 수직선(|) 기호로 구분해서 한 줄로 출력해.
+                    2. 예시: 긍정|부정|중립
+                    3. 다른 말 하지 말고 오직 결과만 줘.
+                    4. 개수는 정확히 {len(batch_comments)}개여야 해.
                     """
                     
                     res_text = generate_with_retry(prompt)
                     
-                    # [핵심 수정] 강력한 파싱 로직 (ast 사용)
+                    # [파싱 로직 단순화] 그냥 | 로 자름
                     try:
-                        # 1. 앞뒤 공백 및 코드블록 제거
-                        clean_text = res_text.replace("```python", "").replace("```", "").strip()
+                        # 혹시 모를 마크다운 제거
+                        clean_text = res_text.replace("```", "").strip()
+                        batch_results = clean_text.split("|")
                         
-                        # 2. 대괄호 [] 안에 있는 내용만 강제로 추출 (AI가 잡담 섞는 것 방지)
-                        start_idx = clean_text.find('[')
-                        end_idx = clean_text.rfind(']') + 1
-                        
-                        if start_idx != -1 and end_idx != -1:
-                            clean_text = clean_text[start_idx:end_idx]
-                            # 3. 파이썬 문법으로 리스트 변환 (홑따옴표, 쌍따옴표 모두 OK)
-                            batch_results = ast.literal_eval(clean_text)
-                        else:
-                            raise ValueError("대괄호를 찾을 수 없음")
+                        # 공백 제거
+                        batch_results = [r.strip() for r in batch_results]
 
                         if len(batch_results) != len(batch_comments):
-                            batch_results = ["개수오류"] * len(batch_comments)
+                            # 개수 안 맞으면 에러 로그 출력해봄
+                            print(f"개수 불일치! 기대: {len(batch_comments)}, 실제: {len(batch_results)}")
+                            print(f"AI 응답: {clean_text}")
+                            # 부족하면 채우기
+                            if len(batch_results) < len(batch_comments):
+                                batch_results.extend(["판독불가"] * (len(batch_comments) - len(batch_results)))
+                            else:
+                                batch_results = batch_results[:len(batch_comments)]
                             
                     except Exception as e:
-                        # 디버깅용: 에러 시 AI가 뭐라고 했는지 화면에 작게 출력
-                        print(f"파싱 에러: {e}")
-                        print(f"AI 응답: {res_text}")
                         batch_results = ["판독불가"] * len(batch_comments)
                     
                     results.extend(batch_results)
-                    
                     time.sleep(1) # 1초 대기
                     
                     current_progress = min((i + BATCH_SIZE) / total_rows, 1.0)
                     progress_bar.progress(current_progress)
                     status_text.text(f"🚀 고속 분석 중... ({min(i + BATCH_SIZE, total_rows)}/{total_rows})")
 
-                # 결과 길이 맞추기
                 if len(results) < total_rows:
                     results.extend(["미처리"] * (total_rows - len(results)))
                 elif len(results) > total_rows:
