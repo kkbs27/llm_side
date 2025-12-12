@@ -61,27 +61,36 @@ st.caption("AI가 데이터를 먼저 읽고 주제를 찾거나, 정해진 기�
 
 uploaded_file = st.file_uploader("CSV 파일 업로드 (열 이름 'comment' 필수)", type=["csv"])
 
-# [수정된 코드] 될 때까지 시도하는 무적 로딩 로직
+# [수정된 코드] 인코딩 + 구조적 에러까지 잡아내는 '진짜 무적' 로딩
 if uploaded_file is not None:
-    # 시도할 인코딩 목록 (순서대로 시도함)
-    encodings = ['utf-8', 'cp949', 'euc-kr', 'latin1']
+    # 1. 시도할 인코딩 목록
+    encodings = ['utf-8', 'cp949', 'euc-kr']
     df = None
     
-    # 반복문을 돌면서 하나씩 시도
+    # 2. 인코딩 반복 시도
     for code in encodings:
         try:
-            uploaded_file.seek(0) # 파일 읽는 위치를 맨 처음으로 초기화 (필수!)
-            df = pd.read_csv(uploaded_file, encoding=code)
-            # 성공하면 여기서 멈춤
+            uploaded_file.seek(0) # 파일 위치 초기화
+            
+            # [핵심 수정] 
+            # engine='python': 더 똑똑하게 파싱함
+            # on_bad_lines='skip': 칸 수 안 맞는 이상한 줄은 무시하고 계속 진행
+            df = pd.read_csv(uploaded_file, encoding=code, engine='python', on_bad_lines='skip')
+            
             st.toast(f"✅ '{code}' 인코딩으로 읽기 성공!")
             break 
-        except UnicodeDecodeError:
-            continue # 실패하면 다음 인코딩으로 넘어감
+        except Exception as e:
+            # 실패하면 다음 인코딩 시도
+            continue
 
-    # 모든 시도가 실패했거나 df가 없으면 에러
+    # 3. 실패 시 처리
     if df is None:
-        st.error("❌ 이 파일은 읽을 수 없는 형식입니다. (Excel에서 'CSV UTF-8'로 다시 저장해주세요)")
+        st.error("❌ 파일을 읽을 수 없습니다. (데이터가 너무 손상되었거나 형식이 맞지 않습니다.)")
         st.stop()
+
+    st.write("### 1. 데이터 확인")
+    st.caption(f"총 {len(df)}개의 데이터를 성공적으로 불러왔습니다.")
+    st.dataframe(df.head())
     st.write("### 1. 데이터 확인")
     st.dataframe(df.head())
 
@@ -178,5 +187,6 @@ if uploaded_file is not None:
                     file_name="ai_analysis_result.csv",
                     mime="text/csv"
                 )
+
 
 
