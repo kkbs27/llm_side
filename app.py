@@ -61,15 +61,27 @@ st.caption("AI가 데이터를 먼저 읽고 주제를 찾거나, 정해진 기�
 
 uploaded_file = st.file_uploader("CSV 파일 업로드 (열 이름 'comment' 필수)", type=["csv"])
 
+# [수정된 코드] 될 때까지 시도하는 무적 로딩 로직
 if uploaded_file is not None:
-    # [수정] 인코딩 자동 감지 로직 추가
-    try:
-        # 1. 기본적으로 UTF-8로 읽기 시도
-        df = pd.read_csv(uploaded_file)
-    except UnicodeDecodeError:
-        # 2. 실패하면(한글 깨짐), 한국어 인코딩(cp949)으로 다시 시도
-        uploaded_file.seek(0) # 파일 포인터를 맨 앞으로 되돌림 (필수!)
-        df = pd.read_csv(uploaded_file, encoding='cp949')
+    # 시도할 인코딩 목록 (순서대로 시도함)
+    encodings = ['utf-8', 'cp949', 'euc-kr', 'latin1']
+    df = None
+    
+    # 반복문을 돌면서 하나씩 시도
+    for code in encodings:
+        try:
+            uploaded_file.seek(0) # 파일 읽는 위치를 맨 처음으로 초기화 (필수!)
+            df = pd.read_csv(uploaded_file, encoding=code)
+            # 성공하면 여기서 멈춤
+            st.toast(f"✅ '{code}' 인코딩으로 읽기 성공!")
+            break 
+        except UnicodeDecodeError:
+            continue # 실패하면 다음 인코딩으로 넘어감
+
+    # 모든 시도가 실패했거나 df가 없으면 에러
+    if df is None:
+        st.error("❌ 이 파일은 읽을 수 없는 형식입니다. (Excel에서 'CSV UTF-8'로 다시 저장해주세요)")
+        st.stop()
     st.write("### 1. 데이터 확인")
     st.dataframe(df.head())
 
@@ -166,4 +178,5 @@ if uploaded_file is not None:
                     file_name="ai_analysis_result.csv",
                     mime="text/csv"
                 )
+
 
