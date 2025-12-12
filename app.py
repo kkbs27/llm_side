@@ -62,7 +62,14 @@ st.caption("AI가 데이터를 먼저 읽고 주제를 찾거나, 정해진 기�
 uploaded_file = st.file_uploader("CSV 파일 업로드 (열 이름 'comment' 필수)", type=["csv"])
 
 if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
+    # [수정] 인코딩 자동 감지 로직 추가
+    try:
+        # 1. 기본적으로 UTF-8로 읽기 시도
+        df = pd.read_csv(uploaded_file)
+    except UnicodeDecodeError:
+        # 2. 실패하면(한글 깨짐), 한국어 인코딩(cp949)으로 다시 시도
+        uploaded_file.seek(0) # 파일 포인터를 맨 앞으로 되돌림 (필수!)
+        df = pd.read_csv(uploaded_file, encoding='cp949')
     st.write("### 1. 데이터 확인")
     st.dataframe(df.head())
 
@@ -159,3 +166,4 @@ if uploaded_file is not None:
                     file_name="ai_analysis_result.csv",
                     mime="text/csv"
                 )
+
