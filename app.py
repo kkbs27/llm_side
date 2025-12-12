@@ -3,14 +3,14 @@ import google.generativeai as genai
 import pandas as pd
 import time
 import os
-import json
+import ast  # [추가됨] 홑따옴표 리스트도 해석하는 강력한 도구
 
-# 1. 보기 싫은 경고 메시지 차단
+# 1. 경고 메시지 차단
 os.environ['GRPC_VERBOSITY'] = 'ERROR'
 os.environ['GLOG_minloglevel'] = '2'
 
 # 2. 페이지 설정
-st.set_page_config(page_title="AI 분석기 Final (Fast)", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="AI 분석기 Final (Fix)", page_icon="⚡", layout="wide")
 
 # 3. API 키 설정
 api_key = None
@@ -32,7 +32,7 @@ if not api_key:
     st.info("👈 왼쪽 사이드바에 API 키를 입력해주세요.")
     st.stop()
 
-# 4. 모델 설정 (Gemini 2.0 Flash 사용)
+# 4. 모델 설정
 genai.configure(api_key=api_key)
 model = genai.GenerativeModel("gemini-2.0-flash")
 
@@ -44,24 +44,22 @@ def generate_with_retry(prompt, max_retries=3):
             return response.text.strip()
         except Exception as e:
             error_msg = str(e)
-            print(f"Error: {error_msg}")
-            
             if "429" in error_msg or "Quota" in error_msg:
                 with st.sidebar:
                     st.toast(f"🚦 잠시 대기 중... ({attempt+1}/{max_retries})")
-                time.sleep(5) # 에러나면 5초 대기
+                time.sleep(5)
             else:
                 time.sleep(1)
     return "FAIL"
 
-# --- 메인 UI 시작 ---
-st.title("⚡ AI 데이터 분석기 (Speed Up Ver.)")
-st.caption("배치 처리(Batch Processing) 기술을 적용하여 속도를 10배 높였습니다.")
+# --- 메인 UI ---
+st.title("⚡ AI 데이터 분석기 (Parser Fix)")
+st.caption("배치 처리 + 강력한 파싱으로 '판독불가' 오류를 해결했습니다.")
 
 uploaded_file = st.file_uploader("CSV 파일 업로드", type=["csv"])
 
 if uploaded_file is not None:
-    # 인코딩 자동 감지 로직
+    # 인코딩 자동 감지
     encodings = ['utf-8', 'cp949', 'euc-kr']
     df = None
     for code in encodings:
@@ -91,7 +89,7 @@ if uploaded_file is not None:
             index=1
         )
 
-        # 주제 탐색 로직 (기존과 동일)
+        # 주제 탐색
         if "스스로" in analysis_mode:
             if st.button("Step 1. 주제 탐색 시작"):
                 with st.spinner("주제 분석 중..."):
@@ -119,60 +117,64 @@ if uploaded_file is not None:
                 status_text = st.empty()
                 results = []
                 
-                # 배치 사이즈 설정 (한 번에 10개씩 처리)
                 BATCH_SIZE = 10 
                 target_df = df
                 total_rows = len(target_df)
                 cats = st.session_state.final_categories
 
-                # 배치 단위로 반복
                 for i in range(0, total_rows, BATCH_SIZE):
-                    # 10개씩 자르기
                     batch = target_df.iloc[i : i + BATCH_SIZE]
                     batch_comments = batch['comment'].tolist()
                     
-                    # 프롬프트 구성 (JSON 형태로 요청하여 파싱 정확도 높임)
+                    # [수정된 프롬프트] JSON 대신 파이썬 리스트 포맷 요청 (더 안정적)
                     prompt = f"""
-                    다음 {len(batch_comments)}개의 댓글을 각각 [{cats}] 중 하나로 분류해줘.
+                    다음 {len(batch_comments)}개의 댓글을 각각 [{cats}] 중 하나로 분류해서 파이썬 리스트 형태로 줘.
                     
                     [댓글 목록]
-                    {json.dumps(batch_comments, ensure_ascii=False)}
+                    {batch_comments}
                     
                     [조건]
-                    1. 결과는 반드시 ["결과1", "결과2", ...] 형태의 JSON 리스트로만 출력해.
-                    2. 다른 말은 절대 하지 마. 오직 리스트만 출력해.
+                    1. 반드시 ['결과1', '결과2'] 형태의 파이썬 리스트만 출력해.
+                    2. 설명이나 코드 블록(```) 없이 리스트만 줘.
                     3. 개수는 정확히 {len(batch_comments)}개여야 해.
                     """
                     
-                    # API 호출
                     res_text = generate_with_retry(prompt)
                     
-                    # 결과 파싱 (JSON -> 리스트 변환)
+                    # [핵심 수정] 강력한 파싱 로직 (ast 사용)
                     try:
-                        # 코드 블록 기호가 있으면 제거
-                        res_text = res_text.replace("```json", "").replace("```", "").strip()
-                        batch_results = json.loads(res_text)
+                        # 1. 앞뒤 공백 및 코드블록 제거
+                        clean_text = res_text.replace("```python", "").replace("```", "").strip()
                         
-                        # 개수가 맞는지 확인
+                        # 2. 대괄호 [] 안에 있는 내용만 강제로 추출 (AI가 잡담 섞는 것 방지)
+                        start_idx = clean_text.find('[')
+                        end_idx = clean_text.rfind(']') + 1
+                        
+                        if start_idx != -1 and end_idx != -1:
+                            clean_text = clean_text[start_idx:end_idx]
+                            # 3. 파이썬 문법으로 리스트 변환 (홑따옴표, 쌍따옴표 모두 OK)
+                            batch_results = ast.literal_eval(clean_text)
+                        else:
+                            raise ValueError("대괄호를 찾을 수 없음")
+
                         if len(batch_results) != len(batch_comments):
-                            # 개수 안 맞으면 에러 처리 대신 '에러'라고 채움
-                            batch_results = ["에러"] * len(batch_comments)
+                            batch_results = ["개수오류"] * len(batch_comments)
                             
-                    except:
-                        # 파싱 실패 시
+                    except Exception as e:
+                        # 디버깅용: 에러 시 AI가 뭐라고 했는지 화면에 작게 출력
+                        print(f"파싱 에러: {e}")
+                        print(f"AI 응답: {res_text}")
                         batch_results = ["판독불가"] * len(batch_comments)
                     
                     results.extend(batch_results)
                     
-                    # [중요] 10개 처리하고 1초만 쉼 (기존: 1개 처리하고 2초 쉼 -> 속도 약 20배 향상)
-                    time.sleep(1)
+                    time.sleep(1) # 1초 대기
                     
-                    # 진행률 업데이트
                     current_progress = min((i + BATCH_SIZE) / total_rows, 1.0)
                     progress_bar.progress(current_progress)
                     status_text.text(f"🚀 고속 분석 중... ({min(i + BATCH_SIZE, total_rows)}/{total_rows})")
 
-                # 결과 길이 맞추기 (혹시 모를 에러 방지)
+                # 결과 길이 맞추기
                 if len(results) < total_rows:
                     results.extend(["미처리"] * (total_rows - len(results)))
                 elif len(results) > total_rows:
